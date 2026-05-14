@@ -44,17 +44,29 @@ async function ensureBrowser() {
 
 async function fetchHtml(url) {
   const page = await ensureBrowser();
-  const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  let resp;
+  try {
+    resp = await page.goto(url, { waitUntil: 'networkidle', timeout: 45000, referer: 'https://www.google.com/' });
+  } catch (e) {
+    // networkidle can time out on slow third-party trackers; fall back to domcontentloaded
+    resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000, referer: 'https://www.google.com/' });
+  }
   if (!resp) throw Object.assign(new Error(`no response ${url}`), { status: 0 });
   const status = resp.status();
+  // Cloudflare uses status 403 for both genuine block AND JS-challenge interstitials.
+  // Wait briefly for any JS challenge to resolve, then look at the rendered content.
+  await page.waitForTimeout(3000);
+  const content = await page.content();
+  // If real content reached us (any JSON-LD Car block present), accept regardless of status.
+  if (content.includes('"@type":"Car"') || content.includes('"@type": "Car"')) return content;
+  // Genuine block (no Car content + non-2xx) → bail.
   if (status >= 400) {
     const e = new Error(`${status} ${url}`);
     e.status = status;
     throw e;
   }
-  // Give Cloudflare's interstitial a moment if present
-  await page.waitForTimeout(500);
-  return await page.content();
+  // 2xx with no Car content → likely an empty page (final page of pagination)
+  return content;
 }
 
 function collectCars(obj, out = []) {
