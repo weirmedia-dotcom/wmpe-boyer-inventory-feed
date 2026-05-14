@@ -1,0 +1,59 @@
+name: Boyer used inventory feed
+
+on:
+  schedule:
+    - cron: "0 11 * * *"   # 06:00/07:00 America/Toronto (DST-dependent)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: boyer-used-feed
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run scraper
+        run: |
+          mkdir -p out
+          node scrape_used_inventory.mjs out/boyer_used_feed.tsv
+          wc -l out/boyer_used_feed.tsv
+
+      - name: Stash artifact
+        run: |
+          mkdir -p /tmp/feed-out
+          cp out/boyer_used_feed.tsv /tmp/feed-out/
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages
+
+      - name: Publish to gh-pages
+        working-directory: pages
+        run: |
+          mkdir -p boyer
+          cp /tmp/feed-out/boyer_used_feed.tsv boyer/used_feed.tsv
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > boyer/used_feed.timestamp
+          git config user.name  "wmpe-bot"
+          git config user.email "bot@weirmedia.ca"
+          git add boyer/used_feed.tsv boyer/used_feed.timestamp
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+          else
+            git commit -m "boyer used inventory feed $(cat boyer/used_feed.timestamp)"
+            git push
+          fi
