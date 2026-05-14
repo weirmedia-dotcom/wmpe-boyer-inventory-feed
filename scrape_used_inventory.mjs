@@ -11,9 +11,12 @@
 // Usage: node scrape_used_inventory.mjs [out_path]
 //        Default out path: ./boyer_used_feed.tsv
 //
-// No external deps. Pure Node fetch + regex.
+// Uses Playwright + headless Chromium to defeat Cloudflare bot management
+// (boyerhyundai.com blocks Node fetch / curl from datacenter IPs regardless of
+// User-Agent or headers — needs a real TLS handshake + JS-capable browser).
 
 import { writeFileSync } from 'node:fs';
+import { chromium } from 'playwright';
 
 const BASE = 'https://www.boyerhyundai.com';
 const LISTING_PATH = '/inventory/used/';
@@ -21,35 +24,37 @@ const LISTING_PATH = '/inventory/used/';
 const STORE_CODE = 'boyer-hyundai-pickering';
 const DEALERSHIP_NAME = 'Boyer Hyundai';
 const DEALERSHIP_ADDRESS = '775 Kingston Road, Pickering, ON L1V 1A2, CA';
-// Cloudflare on boyerhyundai.com blocks bot-shaped UAs coming from datacenter
-// IPs (e.g. GitHub Actions runners). Pose as real Chrome + standard browser
-// headers + retry briefly on transient 403/429/503.
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-CA,en;q=0.9',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Sec-Fetch-Dest': 'document',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'none',
-  'Upgrade-Insecure-Requests': '1',
-};
-
 const MAX_PAGES = 20;
 const OUT_PATH = process.argv[2] || './boyer_used_feed.tsv';
 
-async function fetchHtml(url, attempt = 1) {
-  const r = await fetch(url, { headers: HEADERS });
-  if (!r.ok) {
-    if ([403, 429, 503].includes(r.status) && attempt < 3) {
-      await new Promise(res => setTimeout(res, 2000 * attempt));
-      return fetchHtml(url, attempt + 1);
-    }
-    const e = new Error(`${r.status} ${url}`);
-    e.status = r.status;
+let _browser, _ctx, _page;
+async function ensureBrowser() {
+  if (_page) return _page;
+  _browser = await chromium.launch({ headless: true });
+  _ctx = await _browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    locale: 'en-CA',
+    timezoneId: 'America/Toronto',
+    viewport: { width: 1280, height: 800 },
+    extraHTTPHeaders: { 'Accept-Language': 'en-CA,en;q=0.9' },
+  });
+  _page = await _ctx.newPage();
+  return _page;
+}
+
+async function fetchHtml(url) {
+  const page = await ensureBrowser();
+  const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  if (!resp) throw Object.assign(new Error(`no response ${url}`), { status: 0 });
+  const status = resp.status();
+  if (status >= 400) {
+    const e = new Error(`${status} ${url}`);
+    e.status = status;
     throw e;
   }
-  return await r.text();
+  // Give Cloudflare's interstitial a moment if present
+  await page.waitForTimeout(500);
+  return await page.content();
 }
 
 function collectCars(obj, out = []) {
@@ -223,7 +228,11 @@ async function main() {
   console.error(`[scrape] wrote ${OUT_PATH} (${rows.length} rows, ${out.length} bytes)`);
 }
 
-main().catch(err => {
-  console.error('[scrape] FATAL:', err);
-  process.exit(1);
-});
+main()
+  .catch(err => {
+    console.error('[scrape] FATAL:', err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    try { if (_browser) await _browser.close(); } catch (_) {}
+  });
