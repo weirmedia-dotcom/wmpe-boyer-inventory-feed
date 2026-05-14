@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install deps
         run: npm install --no-audit --no-fund
@@ -41,7 +41,7 @@ jobs:
           cp out/boyer_used_feed.tsv /tmp/feed-out/
 
       - name: Checkout gh-pages
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: gh-pages
           path: pages
