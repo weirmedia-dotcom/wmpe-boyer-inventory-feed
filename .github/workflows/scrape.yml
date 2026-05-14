@@ -14,35 +14,20 @@ concurrency:
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
+    # Self-hosted runner on Mark's Mac Mini. Cloudflare on boyerhyundai.com
+    # blocks GitHub-hosted runner IPs (Azure); running from the Mini's
+    # residential IP bypasses that.
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 5
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
       - name: Install deps
         run: npm install --no-audit --no-fund
 
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: pw-${{ runner.os }}-${{ hashFiles('package.json') }}
-
-      - name: Install Playwright Chromium
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright system deps (cache hit path)
-        if: steps.pw-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+      - name: Install Playwright Chromium (idempotent)
+        run: npx playwright install chromium
 
       - name: Run scraper
         run: |
