@@ -30,12 +30,16 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run scraper
+        id: scrape
+        continue-on-error: true
         run: |
           mkdir -p out
-          node scrape_used_inventory.mjs out/boyer_used_feed.tsv
+          set -o pipefail
+          node scrape_used_inventory.mjs out/boyer_used_feed.tsv 2>&1 | tee /tmp/scrape.log
           wc -l out/boyer_used_feed.tsv
 
       - name: Stash artifact
+        if: steps.scrape.outcome == 'success'
         run: |
           mkdir -p /tmp/feed-out
           cp out/boyer_used_feed.tsv /tmp/feed-out/
@@ -46,18 +50,46 @@ jobs:
           ref: gh-pages
           path: pages
 
-      - name: Publish to gh-pages
+      - name: Publish feed.tsv to gh-pages
+        if: steps.scrape.outcome == 'success'
         working-directory: pages
         run: |
           mkdir -p boyer
           cp /tmp/feed-out/boyer_used_feed.tsv boyer/used_feed.tsv
           date -u +"%Y-%m-%dT%H:%M:%SZ" > boyer/used_feed.timestamp
+
+      - name: Build status report (always)
+        if: always()
+        env:
+          NEW_FEED_PATH: out/boyer_used_feed.tsv
+          PAGES_DIR: pages
+          STATUS_OK: ${{ steps.scrape.outcome == 'success' }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          STATUS_TO: ${{ vars.STATUS_TO || 'mark@weirmedia.ca' }}
+          STATUS_FROM: ${{ vars.STATUS_FROM || 'Boyer Feed Bot <onboarding@resend.dev>' }}
+        run: |
+          # capture last 40 lines of scraper log for failure email
+          if [ -f /tmp/scrape.log ]; then
+            export SCRAPE_LOG_TAIL="$(tail -40 /tmp/scrape.log)"
+          fi
+          node report_status.mjs
+
+      - name: Commit + push gh-pages
+        if: always()
+        working-directory: pages
+        run: |
           git config user.name  "wmpe-bot"
           git config user.email "bot@weirmedia.ca"
-          git add boyer/used_feed.tsv boyer/used_feed.timestamp
+          git add -A
           if git diff --cached --quiet; then
             echo "No changes to publish."
           else
-            git commit -m "boyer used inventory feed $(cat boyer/used_feed.timestamp)"
+            git commit -m "feed + status $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             git push
           fi
+
+      - name: Fail workflow if scraper failed
+        if: steps.scrape.outcome != 'success'
+        run: |
+          echo "Scraper failed — see /tmp/scrape.log above."
+          exit 1
