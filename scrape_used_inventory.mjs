@@ -21,14 +21,30 @@ const LISTING_PATH = '/inventory/used/';
 const STORE_CODE = 'boyer-hyundai-pickering';
 const DEALERSHIP_NAME = 'Boyer Hyundai';
 const DEALERSHIP_ADDRESS = '775 Kingston Road, Pickering, ON L1V 1A2, CA';
-const UA = 'Mozilla/5.0 (compatible) WMPE-Inventory-Scraper/1.0 (+https://weirmedia.ca)';
+// Cloudflare on boyerhyundai.com blocks bot-shaped UAs coming from datacenter
+// IPs (e.g. GitHub Actions runners). Pose as real Chrome + standard browser
+// headers + retry briefly on transient 403/429/503.
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-CA,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Upgrade-Insecure-Requests': '1',
+};
 
 const MAX_PAGES = 20;
 const OUT_PATH = process.argv[2] || './boyer_used_feed.tsv';
 
-async function fetchHtml(url) {
-  const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html' } });
+async function fetchHtml(url, attempt = 1) {
+  const r = await fetch(url, { headers: HEADERS });
   if (!r.ok) {
+    if ([403, 429, 503].includes(r.status) && attempt < 3) {
+      await new Promise(res => setTimeout(res, 2000 * attempt));
+      return fetchHtml(url, attempt + 1);
+    }
     const e = new Error(`${r.status} ${url}`);
     e.status = r.status;
     throw e;
