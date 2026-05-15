@@ -1,16 +1,18 @@
 {
   "name": "wmpe-boyer-inventory-feed",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Daily scraper: Boyer Hyundai used inventory → Google Merchant Center Vehicle Ads feed (TSV).",
   "scripts": {
-    "scrape": "node scrape_used_inventory.mjs out/boyer_used_feed.tsv"
+    "scrape": "node scrape_used_inventory.mjs out/boyer_used_feed.tsv",
+    "report": "node report_status.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "nodemailer": "^6.9.16",
     "playwright": "^1.48.0"
   }
 }

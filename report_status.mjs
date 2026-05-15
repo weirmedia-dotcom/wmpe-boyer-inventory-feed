@@ -11,24 +11,26 @@
 //   PAGES_DIR            local checkout of gh-pages (default: pages)
 //   STATUS_OK            "true" if scraper succeeded, "false" if it failed (default: true)
 //   SCRAPE_LOG_TAIL      last lines of scraper log (passed in on failure)
-//   RESEND_API_KEY       Resend API key for email
+//   GMAIL_USER           Gmail SMTP user (e.g. hello@weirmedia.ca)
+//   GMAIL_APP_PASSWORD   Gmail app password (16-char, no spaces)
 //   STATUS_TO            recipient address (default: mark@weirmedia.ca)
-//   STATUS_FROM          sender address (default: onboarding@resend.dev — works
-//                        without DNS verification for first-party recipients)
+//   STATUS_FROM          From: header (default: derived from GMAIL_USER)
 //
 // Exit code is always 0 — reporting failure should not fail the workflow.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import nodemailer from 'nodemailer';
 
 const NEW_FEED_PATH = process.env.NEW_FEED_PATH || 'out/boyer_used_feed.tsv';
 const PUBLIC_FEED_URL = process.env.PUBLIC_FEED_URL || 'https://weirmedia-dotcom.github.io/wmpe-boyer-inventory-feed/boyer/used_feed.tsv';
 const PAGES_DIR = process.env.PAGES_DIR || 'pages';
 const STATUS_OK = (process.env.STATUS_OK || 'true') === 'true';
 const SCRAPE_LOG_TAIL = process.env.SCRAPE_LOG_TAIL || '';
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const GMAIL_USER = process.env.GMAIL_USER || '';
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
 const STATUS_TO = process.env.STATUS_TO || 'mark@weirmedia.ca';
-const STATUS_FROM = process.env.STATUS_FROM || 'Boyer Feed Bot <onboarding@resend.dev>';
+const STATUS_FROM = process.env.STATUS_FROM || (GMAIL_USER ? `Boyer Feed Bot <${GMAIL_USER}>` : '');
 
 const now = new Date();
 const stamp = now.toISOString();
@@ -179,30 +181,30 @@ try {
   console.log(`[report] WARN: could not write status files: ${e.message}`);
 }
 
-// --- Send email via Resend ---
-if (!RESEND_API_KEY) {
-  console.log('[report] RESEND_API_KEY not set — skipping email send. Subject would have been:');
+// --- Send email via Gmail SMTP ---
+if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+  console.log('[report] GMAIL_USER / GMAIL_APP_PASSWORD not set — skipping email send. Subject would have been:');
   console.log('  ' + subject);
   process.exit(0);
 }
 
 try {
-  const r = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: STATUS_FROM,
-      to: [STATUS_TO],
-      subject,
-      text,
-      html,
-    }),
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,            // STARTTLS
+    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
   });
-  const body = await r.text();
-  if (r.ok) console.log(`[report] email sent (${r.status}): ${body.slice(0, 200)}`);
-  else console.log(`[report] email FAILED (${r.status}): ${body.slice(0, 400)}`);
+  const info = await transporter.sendMail({
+    from: STATUS_FROM,
+    to: STATUS_TO.split(',').map(s => s.trim()).filter(Boolean),
+    subject,
+    text,
+    html,
+  });
+  console.log(`[report] email sent: messageId=${info.messageId} accepted=${(info.accepted||[]).join(',')} rejected=${(info.rejected||[]).join(',')}`);
 } catch (e) {
-  console.log(`[report] email error: ${e.message}`);
+  console.log(`[report] email FAILED: ${e.message}`);
 }
 
 console.log('[report] done.');

@@ -64,9 +64,10 @@ jobs:
           NEW_FEED_PATH: out/boyer_used_feed.tsv
           PAGES_DIR: pages
           STATUS_OK: ${{ steps.scrape.outcome == 'success' }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           STATUS_TO: ${{ vars.STATUS_TO || 'mark@weirmedia.ca' }}
-          STATUS_FROM: ${{ vars.STATUS_FROM || 'Boyer Feed Bot <onboarding@resend.dev>' }}
+          STATUS_FROM: ${{ vars.STATUS_FROM || 'Boyer Feed Bot <hello@weirmedia.ca>' }}
         run: |
           # capture last 40 lines of scraper log for failure email
           if [ -f /tmp/scrape.log ]; then
