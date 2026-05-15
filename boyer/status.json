@@ -1,12 +1,12 @@
 {
   "ok": true,
-  "stamp": "2026-05-15T11:42:01.465Z",
+  "stamp": "2026-05-15T13:01:13.017Z",
   "localDate": "2026-05-15",
   "total": 40,
   "totalValue": 1258156,
   "avgPrice": 31453.9,
   "avgMileage": 72671.45,
-  "added": 1,
+  "added": 0,
   "removed": 0,
   "priceChanges": 0,
   "byModel": {
